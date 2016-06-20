@@ -94,18 +94,36 @@ class Model {
       if (options.limit) {
         params.Limit = options.limit;
       }
-      if (options.nextPage) {
-        params.ExclusiveStartKey = this.lastEvaluatedKey(options.nextPage);
+      const page = options.page;
+      if (page) {
+        if (page.charAt(0) === '-') {
+          const prevPage = page.substring(1, page.length);
+          params.ExclusiveStartKey = this.lastEvaluatedKey(prevPage);
+          params.ScanIndexForward = false;
+        } else {
+          params.ExclusiveStartKey = this.lastEvaluatedKey(page);
+        }
       }
       this._client('query', params).then((result) => {
+        let prevPage;
+        if (result.Items && result.Items.length > 0) {
+          const lastItem = result.Items[result.Items.length - 1];
+          const tempKey[this.hashKey] = lastItem[this.hashKey];
+          if (this.rangeKey) {
+            tempKey[this.rangeKey] = lastItem[this.rangeKey];
+          }
+          prevPage = this.prevPage(tempKey);
+        }
         if (result.LastEvaluatedKey) {
           resolve({
             items: result.Items,
-            nextPage: this.nextPage(result.LastEvaluatedKey)
+            nextPage: this.nextPage(result.LastEvaluatedKey),
+            prevPage
           });
         } else {
           resolve({
-            items: result.Items
+            items: result.Items,
+            prevPage
           });
         }
       })
@@ -142,6 +160,10 @@ class Model {
       Value: count
     };
     return this._client('update', params);
+  }
+
+  static prevPage(key) {
+    return `-${new Buffer(JSON.stringify(key)).toString('base64')}`;
   }
 
   static nextPage(lastEvaluatedKey) {
